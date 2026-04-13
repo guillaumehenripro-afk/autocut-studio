@@ -3,16 +3,18 @@ FROM python:3.11-slim
 # Installer FFmpeg + dépendances système
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Installer les dépendances Python
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Installer torch CPU uniquement (beaucoup plus léger)
+RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-# Pré-télécharger le modèle Whisper "base" (~74 MB)
+# Installer les autres dépendances
+COPY requirements.txt .
+RUN pip install --no-cache-dir flask openai-whisper
+
+# Pré-télécharger le modèle Whisper "base" (~139 MB)
 RUN python -c "import whisper; whisper.load_model('base')"
 
 # Copier le code de l'app
