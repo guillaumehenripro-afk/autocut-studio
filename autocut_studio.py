@@ -131,18 +131,16 @@ def apply_format(input_path, output_path, format_ratio, bg_mode="blur"):
     src_w, src_h = int(video_stream["width"]), int(video_stream["height"])
     src_ratio = src_w / src_h
     target_ratio = w / h
-    if abs(src_ratio - target_ratio) < 0.05:
-        vf = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"
-    elif bg_mode == "blur":
-        vf = (f"split[original][bg];"
-              f"[bg]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=20:5[blurred];"
-              f"[original]scale={w}:{h}:force_original_aspect_ratio=decrease[scaled];"
-              f"[blurred][scaled]overlay=(W-w)/2:(H-h)/2")
-    else:
-        vf = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"
-    cmd = ["ffmpeg", "-y", "-i", str(input_path), "-vf", vf, "-c:v", "libx264", "-preset", "medium",
-           "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-r", "30", str(output_path)]
-    subprocess.run(cmd, capture_output=True)
+    # Toujours utiliser pad/black (plus léger que blur, évite les crashs mémoire)
+    vf = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"
+    cmd = ["ffmpeg", "-y", "-i", str(input_path), "-vf", vf,
+           "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+           "-c:a", "aac", "-b:a", "128k", "-r", "30",
+           "-movflags", "+faststart", str(output_path)]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    print(f"[DEBUG] apply_format code: {result.returncode} | output existe: {Path(output_path).exists()}")
+    if result.returncode != 0:
+        print(f"[DEBUG] apply_format stderr: {result.stderr[-300:]}")
 
 
 def format_srt_time(seconds):
@@ -153,17 +151,16 @@ def format_srt_time(seconds):
 
 def transcribe_video(filepath, language="fr"):
     import whisper
-    # Utiliser /tmp qui est toujours accessible en écriture
-    audio_path = f"/tmp/whisper_{uuid.uuid4().hex}.wav"
-    src = Path(filepath)
-    print(f"[DEBUG] Source: {src} | Existe: {src.exists()} | Taille: {src.stat().st_size if src.exists() else 0}")
+    import tempfile
+    # Extraire l'audio en WAV 16kHz mono (format optimal pour Whisper)
+    audio_path = str(filepath) + "_audio.wav"
     cmd = ["ffmpeg", "-y", "-i", str(filepath), "-ar", "16000", "-ac", "1", "-f", "wav", audio_path]
     result_ffmpeg = subprocess.run(cmd, capture_output=True, text=True)
-    print(f"[DEBUG] FFmpeg code: {result_ffmpeg.returncode} | WAV existe: {Path(audio_path).exists()}")
-    if result_ffmpeg.returncode != 0 or not Path(audio_path).exists():
-        raise Exception(f"Échec FFmpeg (code {result_ffmpeg.returncode}): {result_ffmpeg.stderr[-500:]}")
+    if not Path(audio_path).exists():
+        raise Exception(f"Échec extraction audio: {result_ffmpeg.stderr}")
     model = whisper.load_model("base")
     result = model.transcribe(audio_path, language=language, word_timestamps=True, verbose=False)
+    # Nettoyer le fichier audio temporaire
     try:
         Path(audio_path).unlink()
     except Exception:
