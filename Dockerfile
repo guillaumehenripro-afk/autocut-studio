@@ -6,11 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Torch CPU uniquement
-RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-
 COPY requirements.txt .
-RUN pip install --no-cache-dir flask openai-whisper
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY autocut_studio.py .
 

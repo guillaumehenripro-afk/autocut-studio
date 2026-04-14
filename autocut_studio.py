@@ -150,7 +150,6 @@ def format_srt_time(seconds):
 
 
 def transcribe_video(filepath, language="fr"):
-    import urllib.request
     import json as json_module
 
     groq_api_key = os.environ.get("GROQ_API_KEY")
@@ -167,43 +166,17 @@ def transcribe_video(filepath, language="fr"):
     print("[DEBUG] Audio MP3: " + str(Path(audio_path).stat().st_size) + " bytes")
 
     try:
+        from groq import Groq
+        client = Groq(api_key=groq_api_key)
         with open(audio_path, "rb") as f:
-            audio_data = f.read()
-
-        boundary = "----FormBoundary" + uuid.uuid4().hex
-        CRLF = b"\r\n"
-        
-        def field(name, value):
-            return (
-                b"--" + boundary.encode() + CRLF +
-                b'Content-Disposition: form-data; name="' + name.encode() + b'"' + CRLF + CRLF +
-                value.encode() + CRLF
+            result = client.audio.transcriptions.create(
+                model="whisper-large-v3",
+                file=("audio.mp3", f, "audio/mpeg"),
+                language=language,
+                response_format="verbose_json",
             )
-        
-        body = (
-            field("model", "whisper-large-v3") +
-            field("language", language) +
-            field("response_format", "verbose_json") +
-            b"--" + boundary.encode() + CRLF +
-            b'Content-Disposition: form-data; name="file"; filename="audio.mp3"' + CRLF +
-            b"Content-Type: audio/mpeg" + CRLF + CRLF +
-            audio_data + CRLF +
-            b"--" + boundary.encode() + b"--" + CRLF
-        )
-
-        req = urllib.request.Request(
-            "https://api.groq.com/openai/v1/audio/transcriptions",
-            data=body,
-            headers={
-                "Authorization": "Bearer " + groq_api_key,
-                "Content-Type": "multipart/form-data; boundary=" + boundary,
-            },
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            result = json_module.loads(resp.read().decode("utf-8"))
-
-        print("[DEBUG] Groq OK - " + str(len(result.get("segments", []))) + " segments")
+        print("[DEBUG] Groq OK - " + str(len(result.segments)) + " segments")
+        segments = result.segments
 
     except Exception as e:
         raise Exception("Erreur API Groq: " + str(e))
@@ -215,10 +188,10 @@ def transcribe_video(filepath, language="fr"):
 
     srt_content = ""
     index = 1
-    for segment in result.get("segments", []):
-        start_t = segment.get("start", 0)
-        end_t = segment.get("end", 0)
-        text = segment.get("text", "").strip()
+    for segment in segments:
+        start_t = segment.start
+        end_t = segment.end
+        text = segment.text.strip()
         if text:
             words = text.split()
             for i in range(0, len(words), 6):
