@@ -6,15 +6,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Installer torch CPU uniquement (beaucoup plus léger)
+# Torch CPU uniquement
 RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-# Installer les autres dépendances
 COPY requirements.txt .
 RUN pip install --no-cache-dir flask openai-whisper
-
-# Pré-télécharger le modèle Whisper "tiny" (39 MB seulement)
-RUN python -c "import whisper; whisper.load_model('tiny')"
 
 COPY autocut_studio.py .
 

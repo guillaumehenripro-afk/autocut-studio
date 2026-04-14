@@ -150,37 +150,102 @@ def format_srt_time(seconds):
 
 
 def transcribe_video(filepath, language="fr"):
-    import whisper
-    import tempfile
-    # Extraire l'audio en WAV 16kHz mono (format optimal pour Whisper)
-    audio_path = str(filepath) + "_audio.wav"
-    cmd = ["ffmpeg", "-y", "-i", str(filepath), "-ar", "16000", "-ac", "1", "-f", "wav", audio_path]
+    import urllib.request
+    import json as json_module
+
+    groq_api_key = os.environ.get("GROQ_API_KEY")
+    if not groq_api_key:
+        raise Exception("Cle GROQ_API_KEY manquante dans les variables d environnement")
+
+    audio_path = f"/tmp/groq_audio_{uuid.uuid4().hex}.mp3"
+    cmd = ["ffmpeg", "-y", "-i", str(filepath), "-ar", "16000", "-ac", "1", "-b:a", "32k", "-f", "mp3", audio_path]
     result_ffmpeg = subprocess.run(cmd, capture_output=True, text=True)
     if not Path(audio_path).exists():
-        raise Exception(f"Échec extraction audio: {result_ffmpeg.stderr}")
-    model = whisper.load_model("tiny")
-    result = model.transcribe(audio_path, language=language, word_timestamps=True, verbose=False)
-    # Nettoyer le fichier audio temporaire
+        raise Exception(f"Echec extraction audio: {result_ffmpeg.stderr[-300:]}")
+
+    print(f"[DEBUG] Audio MP3: {Path(audio_path).stat().st_size} bytes")
+
     try:
-        Path(audio_path).unlink()
-    except Exception:
-        pass
+        with open(audio_path, "rb") as f:
+            audio_data = f.read()
+
+        boundary = "----FormBoundary" + uuid.uuid4().hex
+        body = (
+            f"--{boundary}
+"
+            f'Content-Disposition: form-data; name="model"
+
+'
+            f"whisper-large-v3-turbo
+"
+            f"--{boundary}
+"
+            f'Content-Disposition: form-data; name="language"
+
+'
+            f"{language}
+"
+            f"--{boundary}
+"
+            f'Content-Disposition: form-data; name="response_format"
+
+'
+            f"verbose_json
+"
+            f"--{boundary}
+"
+            f'Content-Disposition: form-data; name="file"; filename="audio.mp3"
+'
+            f"Content-Type: audio/mpeg
+
+"
+        ).encode("utf-8") + audio_data + f"
+--{boundary}--
+".encode("utf-8")
+
+        req = urllib.request.Request(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {groq_api_key}",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            result = json_module.loads(resp.read().decode("utf-8"))
+
+        print(f"[DEBUG] Groq OK - {len(result.get('segments', []))} segments")
+
+    except Exception as e:
+        raise Exception(f"Erreur API Groq: {e}")
+    finally:
+        try:
+            Path(audio_path).unlink()
+        except Exception:
+            pass
+
     srt_content = ""
     index = 1
-    for segment in result["segments"]:
-        if "words" in segment and segment["words"]:
-            words = segment["words"]
+    for segment in result.get("segments", []):
+        start_t = segment.get("start", 0)
+        end_t = segment.get("end", 0)
+        text = segment.get("text", "").strip()
+        if text:
+            words = text.split()
             for i in range(0, len(words), 6):
                 chunk = words[i:i+6]
-                start = chunk[0]["start"]; end = chunk[-1]["end"]
-                text = " ".join(w["word"].strip() for w in chunk)
-                srt_content += f"{index}\n{format_srt_time(start)} --> {format_srt_time(end)}\n{text}\n\n"
-                index += 1
-        else:
-            srt_content += f"{index}\n{format_srt_time(segment['start'])} --> {format_srt_time(segment['end'])}\n{segment['text'].strip()}\n\n"
-            index += 1
-    return srt_content
+                chunk_text = " ".join(chunk)
+                duration = end_t - start_t
+                chunk_start = start_t + (i / len(words)) * duration
+                chunk_end = start_t + ((i + len(chunk)) / len(words)) * duration
+                srt_content += f"{index}
+{format_srt_time(chunk_start)} --> {format_srt_time(chunk_end)}
+{chunk_text}
 
+"
+                index += 1
+    return srt_content
 
 def burn_subtitles(input_path, output_path, srt_path, style):
     font_name    = style.get("font", "Arial")
