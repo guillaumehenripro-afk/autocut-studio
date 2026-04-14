@@ -153,21 +153,17 @@ def format_srt_time(seconds):
 
 def transcribe_video(filepath, language="fr"):
     import whisper
-    import tempfile
-    # Extraire l'audio en WAV 16kHz mono (format optimal pour Whisper)
-    audio_path = str(filepath) + "_audio.wav"
-    print(f"[DEBUG] Extraction audio depuis: {filepath}")
-    print(f"[DEBUG] Fichier source existe: {Path(filepath).exists()}")
+    # Utiliser /tmp qui est toujours accessible en écriture
+    audio_path = f"/tmp/whisper_{uuid.uuid4().hex}.wav"
+    src = Path(filepath)
+    print(f"[DEBUG] Source: {src} | Existe: {src.exists()} | Taille: {src.stat().st_size if src.exists() else 0}")
     cmd = ["ffmpeg", "-y", "-i", str(filepath), "-ar", "16000", "-ac", "1", "-f", "wav", audio_path]
     result_ffmpeg = subprocess.run(cmd, capture_output=True, text=True)
-    print(f"[DEBUG] FFmpeg return code: {result_ffmpeg.returncode}")
-    print(f"[DEBUG] FFmpeg stderr: {result_ffmpeg.stderr[-500:]}")
-    print(f"[DEBUG] Audio WAV existe: {Path(audio_path).exists()}")
-    if not Path(audio_path).exists():
-        raise Exception(f"Échec extraction audio: {result_ffmpeg.stderr[-1000:]}")
+    print(f"[DEBUG] FFmpeg code: {result_ffmpeg.returncode} | WAV existe: {Path(audio_path).exists()}")
+    if result_ffmpeg.returncode != 0 or not Path(audio_path).exists():
+        raise Exception(f"Échec FFmpeg (code {result_ffmpeg.returncode}): {result_ffmpeg.stderr[-500:]}")
     model = whisper.load_model("base")
     result = model.transcribe(audio_path, language=language, word_timestamps=True, verbose=False)
-    # Nettoyer le fichier audio temporaire
     try:
         Path(audio_path).unlink()
     except Exception:
