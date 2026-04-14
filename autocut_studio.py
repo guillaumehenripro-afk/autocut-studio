@@ -153,8 +153,20 @@ def format_srt_time(seconds):
 
 def transcribe_video(filepath, language="fr"):
     import whisper
+    import tempfile
+    # Extraire l'audio en WAV 16kHz mono (format optimal pour Whisper)
+    audio_path = str(filepath) + "_audio.wav"
+    cmd = ["ffmpeg", "-y", "-i", str(filepath), "-ar", "16000", "-ac", "1", "-f", "wav", audio_path]
+    result_ffmpeg = subprocess.run(cmd, capture_output=True, text=True)
+    if not Path(audio_path).exists():
+        raise Exception(f"Échec extraction audio: {result_ffmpeg.stderr}")
     model = whisper.load_model("base")
-    result = model.transcribe(str(filepath), language=language, word_timestamps=True, verbose=False)
+    result = model.transcribe(audio_path, language=language, word_timestamps=True, verbose=False)
+    # Nettoyer le fichier audio temporaire
+    try:
+        Path(audio_path).unlink()
+    except Exception:
+        pass
     srt_content = ""
     index = 1
     for segment in result["segments"]:
