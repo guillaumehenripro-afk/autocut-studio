@@ -181,7 +181,7 @@ def transcribe_video(filepath, language="fr"):
             )
         
         body = (
-            field("model", "whisper-large-v3-turbo") +
+            field("model", "whisper-large-v3") +
             field("language", language) +
             field("response_format", "verbose_json") +
             b"--" + boundary.encode() + CRLF +
