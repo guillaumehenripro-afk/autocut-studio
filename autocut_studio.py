@@ -158,7 +158,7 @@ def transcribe_video(filepath, language="fr"):
     result_ffmpeg = subprocess.run(cmd, capture_output=True, text=True)
     if not Path(audio_path).exists():
         raise Exception(f"Échec extraction audio: {result_ffmpeg.stderr}")
-    model = whisper.load_model("base")
+    model = whisper.load_model("tiny")
     result = model.transcribe(audio_path, language=language, word_timestamps=True, verbose=False)
     # Nettoyer le fichier audio temporaire
     try:
