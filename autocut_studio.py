@@ -189,9 +189,9 @@ def transcribe_video(filepath, language="fr"):
     srt_content = ""
     index = 1
     for segment in segments:
-        start_t = segment.start
-        end_t = segment.end
-        text = segment.text.strip()
+        start_t = segment.get("start", 0) if isinstance(segment, dict) else segment.start
+        end_t = segment.get("end", 0) if isinstance(segment, dict) else segment.end
+        text = (segment.get("text", "") if isinstance(segment, dict) else segment.text).strip()
         if text:
             words = text.split()
             for i in range(0, len(words), 6):
