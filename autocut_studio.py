@@ -155,70 +155,58 @@ def transcribe_video(filepath, language="fr"):
 
     groq_api_key = os.environ.get("GROQ_API_KEY")
     if not groq_api_key:
-        raise Exception("Cle GROQ_API_KEY manquante dans les variables d environnement")
+        raise Exception("Cle GROQ_API_KEY manquante")
 
-    audio_path = f"/tmp/groq_audio_{uuid.uuid4().hex}.mp3"
+    # Extraire audio MP3 leger pour Groq
+    audio_path = "/tmp/groq_audio_" + uuid.uuid4().hex + ".mp3"
     cmd = ["ffmpeg", "-y", "-i", str(filepath), "-ar", "16000", "-ac", "1", "-b:a", "32k", "-f", "mp3", audio_path]
     result_ffmpeg = subprocess.run(cmd, capture_output=True, text=True)
     if not Path(audio_path).exists():
-        raise Exception(f"Echec extraction audio: {result_ffmpeg.stderr[-300:]}")
+        raise Exception("Echec extraction audio: " + result_ffmpeg.stderr[-300:])
 
-    print(f"[DEBUG] Audio MP3: {Path(audio_path).stat().st_size} bytes")
+    print("[DEBUG] Audio MP3: " + str(Path(audio_path).stat().st_size) + " bytes")
 
     try:
         with open(audio_path, "rb") as f:
             audio_data = f.read()
 
         boundary = "----FormBoundary" + uuid.uuid4().hex
+        CRLF = b"\r\n"
+        
+        def field(name, value):
+            return (
+                b"--" + boundary.encode() + CRLF +
+                b'Content-Disposition: form-data; name="' + name.encode() + b'"' + CRLF + CRLF +
+                value.encode() + CRLF
+            )
+        
         body = (
-            f"--{boundary}
-"
-            f'Content-Disposition: form-data; name="model"
-
-'
-            f"whisper-large-v3-turbo
-"
-            f"--{boundary}
-"
-            f'Content-Disposition: form-data; name="language"
-
-'
-            f"{language}
-"
-            f"--{boundary}
-"
-            f'Content-Disposition: form-data; name="response_format"
-
-'
-            f"verbose_json
-"
-            f"--{boundary}
-"
-            f'Content-Disposition: form-data; name="file"; filename="audio.mp3"
-'
-            f"Content-Type: audio/mpeg
-
-"
-        ).encode("utf-8") + audio_data + f"
---{boundary}--
-".encode("utf-8")
+            field("model", "whisper-large-v3-turbo") +
+            field("language", language) +
+            field("response_format", "verbose_json") +
+            b"--" + boundary.encode() + CRLF +
+            b'Content-Disposition: form-data; name="file"; filename="audio.mp3"' + CRLF +
+            b"Content-Type: audio/mpeg" + CRLF + CRLF +
+            audio_data + CRLF +
+            b"--" + boundary.encode() + b"--" + CRLF
+        )
 
         req = urllib.request.Request(
             "https://api.groq.com/openai/v1/audio/transcriptions",
             data=body,
             headers={
-                "Authorization": f"Bearer {groq_api_key}",
-                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Authorization": "Bearer " + groq_api_key,
+                "Content-Type": "multipart/form-data; boundary=" + boundary,
             },
             method="POST"
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
             result = json_module.loads(resp.read().decode("utf-8"))
 
-        print(f"[DEBUG] Groq OK - {len(result.get('segments', []))} segments")
+        print("[DEBUG] Groq OK - " + str(len(result.get("segments", []))) + " segments")
 
     except Exception as e:
-        raise Exception(f"Erreur API Groq: {e}")
+        raise Exception("Erreur API Groq: " + str(e))
     finally:
         try:
             Path(audio_path).unlink()
@@ -239,11 +227,9 @@ def transcribe_video(filepath, language="fr"):
                 duration = end_t - start_t
                 chunk_start = start_t + (i / len(words)) * duration
                 chunk_end = start_t + ((i + len(chunk)) / len(words)) * duration
-                srt_content += f"{index}
-{format_srt_time(chunk_start)} --> {format_srt_time(chunk_end)}
-{chunk_text}
-
-"
+                srt_content += str(index) + "\n"
+                srt_content += format_srt_time(chunk_start) + " --> " + format_srt_time(chunk_end) + "\n"
+                srt_content += chunk_text + "\n\n"
                 index += 1
     return srt_content
 
